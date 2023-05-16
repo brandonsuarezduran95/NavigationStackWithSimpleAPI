@@ -16,41 +16,57 @@ enum NetworkError: String, Error {
 
 class Network {
     
+    let sessionHandler: SessionHandler
+    let parserHandler: ParserHandler
+    
+    init(sessionHandler: SessionHandler = SessionHandler(), parserHandler: ParserHandler = ParserHandler()) {
+        self.sessionHandler = sessionHandler
+        self.parserHandler = parserHandler
+    }
+    
     func getData(completion: @escaping (Result<[User], NetworkError>) -> Void ) {
         guard let url = URL(string: "https://jsonplaceholder.typicode.com/users") else {
             print(NetworkError.badURL.rawValue)
             return
         }
-        
+        sessionHandler.createSession(url: url) { sessionResult in
+            switch sessionResult {
+            case .success(let sessionData):
+                self.parserHandler.parseData(data: sessionData) { parsingResult in
+                    switch parsingResult {
+                    case .success(let data):
+                        completion(.success(data))
+                    case .failure(let parsingError):
+                        completion(.failure(parsingError))
+                    }
+                }
+                
+            case .failure(let sessionError):
+                completion(.failure(sessionError))
+            }
+        }
+    }
+}
+
+class SessionHandler {
+    func createSession(url: URL, completion: @escaping (Result<Data, NetworkError>) -> Void) {
         URLSession.shared.dataTask(with: url) { data, response, error in
-            if let _ = error {
-                completion(.failure(NetworkError.badURL))
+            guard let data = data , error == nil  else {
+                return completion(.failure(NetworkError.badURL))
             }
-            
-            do {
-                let data = try JSONDecoder().decode([User].self, from: data!)
-                print(data)
-                completion(.success(data))
-            } catch {
-                completion(.failure(NetworkError.badServerResponse))
-            }
+            completion(.success(data))
         }.resume()
     }
 }
 
-class Router: ObservableObject {
-    @Published var users: [User] = []
-    
-    func getData() {
-        Network().getData { [weak self] result in
-            switch result {
-            case .success(let data):
-                DispatchQueue.main.async {
-                    self?.users = data
-                }
-            case .failure(let error):
-                print(error.rawValue)
-            }
+class ParserHandler {
+    func parseData(data: Data, completion: @escaping (Result<[User], NetworkError>) -> Void) {
+        do {
+            let data = try JSONDecoder().decode([User].self, from: data)
+            print(data)
+            return completion(.success(data))
+        } catch {
+            return completion(.failure(NetworkError.badServerResponse))
         }
     }
 }
